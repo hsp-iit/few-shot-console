@@ -9,7 +9,7 @@ Clone the strm repository
 https://github.com/Anirudh257/strm.git
 ```
 Download the SSv2 checkpoint `checkpoint75000.pt` from their repository, place it under a `checkpoints` directory in the root.
-As environment, use `strm/environment.yaml`.
+As environment, use `strm/environment.yaml` + PySimpleGUI + imageio.
 
 ### Launch
 Lauch inference from the webcam with `python demo/simple_inference.py`
