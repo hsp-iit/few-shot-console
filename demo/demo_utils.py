@@ -1,0 +1,2 @@
+class SSException(Exception):
+    pass

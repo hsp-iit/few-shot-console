@@ -1,2 +1,5 @@
 strm
 checkpoints
+.vscode
+*/__pycache__
+demo/ss
