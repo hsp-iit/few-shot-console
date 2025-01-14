@@ -15,10 +15,10 @@ class HumanConsole:
         self.window_size = 8
         self.lay_actions = [[
                          sg.ProgressBar(1, orientation='h', size=(20, 20), key=f"FS-{key}"),
-                         sg.ProgressBar(1, orientation='h', size=(20, 20), key=f"OS-{key}"),
+                        #  sg.ProgressBar(1, orientation='h', size=(20, 20), key=f"OS-{key}"),
                          sg.Text(key, key=f"ACTION-{key}")] 
                          for key in self.values]
-        self.lay_thrs = [[sg.Slider(range=(0, 100), size=(20, 20), orientation='h', key='FS-THR'), sg.Slider(range=(0, 100), size=(20, 20), orientation='h', key='OS-THR')]]
+        self.lay_thrs = [[sg.Slider(range=(0, 100), size=(20, 20), orientation='h', key='FS-THR')]] #, sg.Slider(range=(0, 100), size=(20, 20), orientation='h', key='OS-THR')]]
         self.lay_commands = [[sg.Button("Remove", key="DELETE", size=(6, 1)),
                               sg.Combo(list(self.values), size=(20,1), enable_events=False, key='DELETEACTION', readonly=True),
                               sg.Combo(["all", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], size=(3,1), enable_events=False, key='DELETEID', readonly=True)],
@@ -60,7 +60,7 @@ class HumanConsole:
         else:
             self.window = sg.Window('Few-Shot Console', self.lay_final, resizable=True, finalize=True)
 
-        self.window.maximize()
+        # self.window.maximize()
 
     def loop(self, data):
 
@@ -71,25 +71,25 @@ class HumanConsole:
 
         # ACTIONS
         actions = data["actions"]
-        is_true = data["is_true"]
+        # is_true = data["is_true"]
         if actions is not None:
             # RESTART IF SS HAS CHANGED
-            if self.values != actions.keys():
+            if self.values != list(actions.keys()):
                 raise SSException("Support set has changed!")
             # UPDATE SCORES
             if len(self.values) > 0:
                 best_action = max(zip(actions.values(), actions.keys()))[1]
                 for key in actions:
                     self.window[f"FS-{key}"].update(actions[key])
-                    if key == best_action:
-                        self.window[f"OS-{key}"].update(is_true)
-                        if actions[best_action] > val['FS-THR']/100 and is_true > val['OS-THR']/100:
-                            self.window[f"ACTION-{best_action}"].update(text_color="red")
-                        else:
-                            self.window[f"ACTION-{best_action}"].update(text_color="white")
-                    else:
-                        self.window[f"OS-{key}"].update(0.)
-                        self.window[f"ACTION-{key}"].update(text_color="white")
+                    # if key == best_action:
+                    #     self.window[f"OS-{key}"].update(is_true)
+                    #     if actions[best_action] > val['FS-THR']/100 and is_true > val['OS-THR']/100:
+                    #         self.window[f"ACTION-{best_action}"].update(text_color="red")
+                    #     else:
+                    #         self.window[f"ACTION-{best_action}"].update(text_color="white")
+                    # else:
+                    #     self.window[f"OS-{key}"].update(0.)
+                    #     self.window[f"ACTION-{key}"].update(text_color="white")
 
         # LOG
         if data["log"] is not None:

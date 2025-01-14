@@ -15,45 +15,45 @@ import shutil
 from strm.model import CNN_STRM
 import asyncio
 from demo.demo_utils import SSException
+import json
+from transformers import AutoImageProcessor
+from safsar import SAFSAR
+from PIL import Image
+from torch.nn.parallel import DistributedDataParallel as DDP
+
+# Change transform to custom ones if we are using SAFSAR
+processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
+
+def custom_transform(x):
+    return [x for x in processor(x)["pixel_values"][0]]
 
 
-async def do_inference(model, ss, last_n_frames, precomputed_context_features):
+async def do_inference(model, last_n_frames):
     log = None
-    if len(ss) > 0:
-        # Prepare data
-        ss_data = np.concatenate([ss[action] for action in ss.keys()], axis=0)
-        ss_data = ss_data.reshape((-1, 224, 224, 3))
-        ss_data = torch.FloatTensor(ss_data).cuda().permute(0, 3, 1, 2)
-        query_data = np.stack(last_n_frames)
-        query_data = torch.FloatTensor(query_data).cuda().permute(0, 3, 1, 2)
-        context_labels = []
-        for i, k in enumerate(ss.keys()):
-            context_labels += [i] * len(ss[k])
-        context_labels = torch.LongTensor(context_labels).cuda()
+    if len(model.ss_labels) > 0:
+        
+        query_data = [Image.fromarray(x) for x in last_n_frames]
+        query_data = [model.tensor_transform(v) for v in model.custom_transform(query_data)]
+        query_data = torch.stack(query_data)
 
         # Inference
         with torch.no_grad():
-            # normalize
-            ss_data = ss_data/255.0
-            query_data = query_data/255.0
-            res, precomputed_context_features = model(ss_data, context_labels, query_data, 
-                                                        precomputed_context_features=precomputed_context_features)
-        target_logits = res['logits'] + 0.1*res['logits_post_pat']
-        # target_logits = torch.softmax(target_logits, dim=-1)
-        # print(target_logits)
-        action_res = {action: target_logits[0][0][i].item() for i, action in enumerate(list(ss.keys()))}
+            res = model(query_data)
+        res = res["similarity_matrix"].squeeze(0)  # Remove batch dimension
+        res = torch.softmax(torch.tensor(res), 0).detach().cpu().numpy()
+        action_res = {action: res[i] for i, action in enumerate(model.ss_labels)}
 
         # visualize frame and activation together
-        activations = model.activations
-        if len(activations) == 2:  # first time it computes also support set features
-            _, target_activations = model.activations
-        else:
-            target_activations = model.activations[0]
+        # activations = model.activations
+        # if len(activations) == 2:  # first time it computes also support set features
+        #     _, target_activations = model.activations
+        # else:
+        #     target_activations = model.activations[0]
         res = {"actions": action_res, "log": log, 
-               "target_activations": target_activations}
+               "target_activations": None}
     else:
         res = {"actions": {}, "log": log, "target_activations": None}
-    return res, precomputed_context_features
+    return res
 
 def load_ss(ss_path, n_frames):
     # Load ss
@@ -65,7 +65,7 @@ def load_ss(ss_path, n_frames):
         for example in (ss_path / action.name).iterdir():
             example_imgs = []
             for i in range(n_frames):
-                example_imgs.append(imageio.imread(ss_path / action.name / example.name / f"{i}.jpg"))
+                example_imgs.append(Image.open(ss_path / action.name / example.name / f"{i}.jpg"))
             ss[action.name].append(example_imgs)
             ss_gifs[action.name].append(ss_path / action.name / example.name / f"{action.name}.gif")
     return ss, ss_gifs
@@ -89,9 +89,6 @@ async def main_loop():
     frame_time = 1.0 / (n_frames/window_seconds_length)
     ss_name = "base"
     ss_path = Path("demo") / "ss" / ss_name
-    # model_checkpoint = "strm_70k_os_nturgbd.pt"
-    model_checkpoint = "nturgbd_os_cos/checkpoint200000.pt"
-    # model_checkpoint = "strm_300k_os_ssv2.pt"
 
     # Main loop
     while True:
@@ -100,28 +97,32 @@ async def main_loop():
             ss, ss_gifs = load_ss(ss_path, n_frames)
 
             # Load model
-            class Args:
-                method = "resnet50"
-                trans_linear_in_dim = 2048
-                trans_linear_out_dim = 1152
-                temp_set = [2]
-                seq_len = 8
-                trans_dropout = 0.1
-                way = len(ss)
-            state_dict = torch.load(f"checkpoints/{model_checkpoint}")["model_state_dict"]
-            new_state_dict = OrderedDict()
+            def load_configs(model_name):
+                local_or_server = "server" if "iit.local" in os.getcwd() else "local"
+                model_config_path = f"configs/{model_name}/{local_or_server}_config.json"
+                with open(model_config_path, 'r') as f:
+                    model_config = json.load(f)
+                return model_config
+
+            config = load_configs("SAFSAR")
+            model = SAFSAR(config)
+            model.cuda()
+            model.set_eval()
+            model.eval()
+            state_dict = torch.load(config["checkpoint_path"])
+            single_gpu_state_dict = OrderedDict()
             for k, v in state_dict.items():
-                name = k.replace('.module', '')  # remove `.module`
-                new_state_dict[name] = v
-            model = CNN_STRM(Args())
-            model.load_state_dict(new_state_dict)
-            model = model.cuda()
-            model = model.eval()
-            model.register_activation_hook()
-            model.new_dist_loss_post_pat = [n.cuda(0) for n in model.new_dist_loss_post_pat]
+                name = k.replace('task_specific_learning_module', 'bau1')
+                name = name.replace('mm_fusion_module', 'bau2')
+                name = name.replace('module.', '')
+                name = name.replace('bau2', 'mm_fusion_module')
+                name = name.replace('bau1', 'task_specific_learning_module')
+                single_gpu_state_dict[name] = v
+            model.load_state_dict(single_gpu_state_dict)
+            model.set_ss(ss)
 
             # Create GUI
-            gui = HumanConsole(values=ss.keys(), gifs_paths=ss_gifs)
+            gui = HumanConsole(values=list(ss.keys())[:5], gifs_paths=ss_gifs)
 
             # Loop
             log = None
@@ -151,15 +152,15 @@ async def main_loop():
 
                 # Async inference
                 if not processing:  # No processing in progress
-                    inference_task = asyncio.create_task(do_inference(model, ss, last_n_frames, precomputed_context_features))
+                    inference_task = asyncio.create_task(do_inference(model, last_n_frames))
                     processing = True
                 if processing and inference_task.done():  # Processing finished
-                    res, precomputed_context_features = await inference_task
+                    res = await inference_task
                     processing = False
                 if processing and not inference_task.done():  # Processing in progress
                     await asyncio.sleep(0.01)  # Add a small delay to reduce the frequency of checks
                 if res is None:  # Special case for first iteration
-                    res, precomputed_context_features = await inference_task
+                    res = await inference_task
 
                 cmd = gui.loop(res)
 
