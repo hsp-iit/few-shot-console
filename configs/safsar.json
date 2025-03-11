@@ -1,0 +1,21 @@
+
+{
+    "processor_name": "MCG-NJU/videomae-base-finetuned-kinetics",
+    "mm_model_name": "MCG-NJU/videomae-base-finetuned-kinetics",
+    "checkpoint_path": "checkpoints/SAFSAR_discriminator_SSv2_20250218_104119/STEPS_36000_ACC_0.7788_os_acc_0.7353.pt",
+    "hidden_size": 768,
+    "num_layers_mm": 2,
+    "num_heads": 8,
+    "intermediate_size": 3072,
+    "num_layers_task": 1,
+    "alpha": 0.1,
+    "lr": 4e-6,
+    "query_per_class": 1,
+    "optimize_every": 1,
+    "maximum_queries": 5,
+    "ddp": true,
+    "dp": false,
+    "shot": 1,
+    "way":  5,
+    "seq_len": 8
+}

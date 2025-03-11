@@ -12,7 +12,6 @@ import time
 from pathlib import Path
 import numpy as np
 import shutil
-from strm.model import CNN_STRM
 import asyncio
 from demo.demo_utils import SSException
 import json
@@ -30,18 +29,21 @@ def custom_transform(x):
 
 async def do_inference(model, last_n_frames):
     log = None
-    if len(model.ss_labels) > 0:
+    if len(model.ss_labels) > 1:
         
         query_data = [Image.fromarray(x) for x in last_n_frames]
         query_data = [model.tensor_transform(v) for v in model.custom_transform(query_data)]
         query_data = torch.stack(query_data)
 
         # Inference
-        with torch.no_grad():
-            res = model(query_data)
+        res = model(query_data)
+        os_score = None
+        if "disc_prob" in res:
+            os_score = res["disc_prob"].item()
         res = res["similarity_matrix"].squeeze(0)  # Remove batch dimension
-        res = torch.softmax(torch.tensor(res), 0).detach().cpu().numpy()
-        action_res = {action: res[i] for i, action in enumerate(model.ss_labels)}
+        # res = torch.softmax(res, 0).detach().cpu().numpy()
+        res = res.detach().cpu().numpy()
+        action_res = {action: res[i] for i, action in enumerate(list(dict.fromkeys(model.ss_labels)))}
 
         # visualize frame and activation together
         # activations = model.activations
@@ -49,7 +51,7 @@ async def do_inference(model, last_n_frames):
         #     _, target_activations = model.activations
         # else:
         #     target_activations = model.activations[0]
-        res = {"actions": action_res, "log": log, 
+        res = {"actions": action_res, "log": log, "os_score": os_score,
                "target_activations": None}
     else:
         res = {"actions": {}, "log": log, "target_activations": None}
@@ -68,6 +70,9 @@ def load_ss(ss_path, n_frames):
                 example_imgs.append(Image.open(ss_path / action.name / example.name / f"{i}.jpg"))
             ss[action.name].append(example_imgs)
             ss_gifs[action.name].append(ss_path / action.name / example.name / f"{action.name}.gif")
+    # sort dict alfabetically
+    ss = dict(sorted(ss.items()))
+    ss_gifs = dict(sorted(ss_gifs.items()))
     return ss, ss_gifs
 
 
@@ -76,12 +81,23 @@ async def main_loop():
     # Connect to Camera
     W=640
     H=480
-    cap = cv2.VideoCapture(0)
+    cameras = []
+    for i in range(10):
+        cap = cv2.VideoCapture(i)
+        if cap.read()[0]:
+            cameras.append(i)
+            cap.release()
+    print(f"Available cameras: {cameras}")
+    cap = cv2.VideoCapture(4)
     cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, W)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, H)
     cap.set(cv2.CAP_PROP_FPS, 30)
     processing = False
+
+    # display camera
+    cv2.namedWindow('Camera', cv2.WINDOW_NORMAL | cv2.WINDOW_GUI_NORMAL)
+    cv2.setWindowProperty('Camera', cv2.WND_PROP_TOPMOST, 1)
 
     # Loop args
     n_frames = 8
@@ -98,8 +114,7 @@ async def main_loop():
 
             # Load model
             def load_configs(model_name):
-                local_or_server = "server" if "iit.local" in os.getcwd() else "local"
-                model_config_path = f"configs/{model_name}/{local_or_server}_config.json"
+                model_config_path = f"configs/safsar.json"
                 with open(model_config_path, 'r') as f:
                     model_config = json.load(f)
                 return model_config
@@ -107,22 +122,20 @@ async def main_loop():
             config = load_configs("SAFSAR")
             model = SAFSAR(config)
             model.cuda()
-            model.set_eval()
             model.eval()
+            torch.set_grad_enabled(False)
             state_dict = torch.load(config["checkpoint_path"])
             single_gpu_state_dict = OrderedDict()
             for k, v in state_dict.items():
-                name = k.replace('task_specific_learning_module', 'bau1')
-                name = name.replace('mm_fusion_module', 'bau2')
-                name = name.replace('module.', '')
-                name = name.replace('bau2', 'mm_fusion_module')
-                name = name.replace('bau1', 'task_specific_learning_module')
+                name = k.replace("model.module", "model")
+                if "global_classification" in name:
+                    continue
                 single_gpu_state_dict[name] = v
             model.load_state_dict(single_gpu_state_dict)
             model.set_ss(ss)
 
             # Create GUI
-            gui = HumanConsole(values=list(ss.keys())[:5], gifs_paths=ss_gifs)
+            gui = HumanConsole(values=list(ss.keys()), gifs_paths=ss_gifs)
 
             # Loop
             log = None
@@ -175,6 +188,7 @@ async def main_loop():
                             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # TODO TEST
                             cv2.imshow('Camera', frame)
                             cv2.waitKey(1)
+                            gui.loop({"log": f"Get ready in {3 - int(time.time() - start_time)}"})
                         action_frames = []
                         for i in range(n_frames):
                             start_time = time.time()
@@ -239,6 +253,7 @@ async def main_loop():
                     if res["actions"][action] > gui.last_thr/100:
                         cv2.putText(frame, action, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
 
+                cv2.putText(frame, gui.current_action, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
                 cv2.imshow('Camera', frame)
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
