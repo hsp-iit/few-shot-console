@@ -1,15 +1,27 @@
-# STRM Demo
-![The GUI](img.png)
-This repository contains a simple inference script and a GUI to play with the [STRM](https://github.com/Anirudh257/strm) model (currently SOTA for few-shot action recognition).
-The GUI allows to add, visualize and remove actions from the support set.
+# Few-Shot Console
+![The GUI](fsc.jpg)
+This repository contains a simple inference script for the models of the paper TODO and a GUI that allow to easily collect new demonstrations and to modify known classes.
 
 ### Setup
-Clone the strm repository
+Clone the few-shot-console repository:
 ```
-https://github.com/Anirudh257/strm.git
+git clone https://github.com/hsp-iit/few-shot-console.git
 ```
-Download the SSv2 checkpoint `checkpoint75000.pt` from their repository, place it under a `checkpoints` directory in the root.
-As environment, use `strm/environment.yaml` + PySimpleGUI + imageio.
+Install Conda, then create a Conda environment with:
+```
+conda env create -f environment.yml
+```
+NOTE: environment can be simplified. (TODO)
+
+Download the model checkpoints depending on your target settings:
+- Table top:  (TODO) the checkpoint from SSv2
+- Human-Robot Interaction: download (TODO) the checkpoint from NTURGBD120
 
 ### Launch
-Lauch inference from the webcam with `python demo/simple_inference.py`
+If needed, adjust the setting in config.json.
+Within the conda environment activated, launch
+```
+python demo.py
+```
+Note that the demo.py script search for available cameras with OpenCV and then select the last one as input source.
+Modify this behaviour if needed.

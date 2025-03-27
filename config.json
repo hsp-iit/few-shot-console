@@ -1,0 +1,28 @@
+
+{
+    "processor_name": "MCG-NJU/videomae-base-finetuned-kinetics",
+    "mm_model_name": "MCG-NJU/videomae-base-finetuned-kinetics",
+    "checkpoint_path": "checkpoints/NTURGBD120_16frames_STEPS_42000_ACC_0.9639_os_acc_0.8973.pt",
+    "os_loss": "discriminator",
+    "show_activations": false,
+    "video_path": "",
+    "initial_ss": "coffee",
+    "save_log": false,
+    "save_output_video": false,
+    "window_seconds": 2,
+    "hidden_size": 768,
+    "num_layers_mm": 2,
+    "num_heads": 8,
+    "intermediate_size": 3072,
+    "num_layers_task": 1,
+    "alpha": 0.1,
+    "lr": 4e-6,
+    "query_per_class": 1,
+    "optimize_every": 1,
+    "maximum_queries": 5,
+    "ddp": true,
+    "dp": false,
+    "shot": 5,
+    "way":  5,
+    "seq_len": 16
+}
