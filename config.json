@@ -24,5 +24,7 @@
     "dp": false,
     "shot": 5,
     "way":  5,
-    "seq_len": 16
+    "seq_len": 16,
+    "image_height": 480,
+    "image_width": 640
 }

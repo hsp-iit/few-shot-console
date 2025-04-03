@@ -1,7 +1,5 @@
 # Export PYTHONPATH to pwd
-import sys
 import os
-from collections import OrderedDict
 from src.gui import HumanConsole
 import torch
 import cv2
@@ -14,11 +12,12 @@ import asyncio
 from src.gui import SSException
 import json
 from transformers import AutoImageProcessor
-from src.safsar import SAFSAR
+
 from PIL import Image
 from torch.nn.parallel import DistributedDataParallel as DDP
 from pathlib import Path
-from src.utils import FakeCap
+from src.utils import FakeCap, load_ss
+from src.inference import load_model, async_inference
 import tkinter as tk
 
 # Change transform to custom ones if we are using SAFSAR
@@ -26,55 +25,6 @@ processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-
 
 def custom_transform(x):
     return [x for x in processor(x)["pixel_values"][0]]
-
-
-async def do_inference(model, last_n_frames, os_loss):
-    log = None
-    if len(model.ss_labels) > 0:
-        
-        query_data = [Image.fromarray(x) for x in last_n_frames]
-        query_data = [model.tensor_transform(v) for v in model.custom_transform(query_data)]
-        query_data = torch.stack(query_data)  # .half()
-
-        # Inference
-        res = model(query_data)
-        os_score = None
-        if os_loss == "discriminator":
-            os_score = res["disc_prob"].item()
-            sim_mat = res["similarity_matrix"].squeeze(0)  # Remove batch dimension
-        elif os_loss == "softmax":
-            sim_mat = res["similarity_matrix"].squeeze(0)  # Remove batch dimension
-            os_score = (sim_mat.max().item()+1)/2
-            sim_mat = torch.nn.functional.softmax(sim_mat, dim=-1)
-        sim_mat = sim_mat.detach().cpu().numpy()
-        action_res = {action: sim_mat[i] for i, action in enumerate(list(dict.fromkeys(model.ss_labels)))}
-
-        # visualize frame and activation together
-        activations = res["activations"]
-        res = {"actions": action_res, "log": log, "os_score": os_score,
-               "activations": activations}
-    else:
-        res = {"actions": {}, "log": log, "os_score": 0, "activations": None}
-    return res
-
-def load_ss(ss_path, n_frames):
-    # Load ss
-    ss = {}
-    ss_gifs = {}
-    for action in ss_path.iterdir():
-        ss[action.name] = []
-        ss_gifs[action.name] = []
-        for example in (ss_path / action.name).iterdir():
-            example_imgs = []
-            for i in range(n_frames):
-                example_imgs.append(Image.open(ss_path / action.name / example.name / f"{i}.jpg"))
-            ss[action.name].append(example_imgs)
-            ss_gifs[action.name].append(ss_path / action.name / example.name / f"{action.name}.gif")
-    # sort dict alfabetically
-    ss = dict(sorted(ss.items()))
-    ss_gifs = dict(sorted(ss_gifs.items()))
-    return ss, ss_gifs
-
 
 async def main_loop():
 
@@ -129,19 +79,7 @@ async def main_loop():
         os.makedirs(log_path, exist_ok=True)
 
     # Load model
-    model = SAFSAR(config)
-    model.cuda()
-    model.eval()
-    model  # .half()
-    torch.set_grad_enabled(False)
-    state_dict = torch.load(config["checkpoint_path"])
-    single_gpu_state_dict = OrderedDict()
-    for k, v in state_dict.items():
-        name = k.replace("model.module", "model")
-        if "global_classification" in name:
-            continue
-        single_gpu_state_dict[name] = v
-    model.load_state_dict(single_gpu_state_dict, strict=False)
+    model = load_model(config)
 
     # Main loop
     outputs = []
@@ -155,8 +93,6 @@ async def main_loop():
             gui = HumanConsole(values=list(ss.keys()), gifs_paths=ss_gifs)
 
             # Loop
-            log = None
-            precomputed_context_features = None
             last_n_frames = []
             res = None
             start_time = time.time()
@@ -183,7 +119,7 @@ async def main_loop():
 
                 # Async inference
                 if not processing:  # No processing in progress
-                    inference_task = asyncio.create_task(do_inference(model, last_n_frames, config["os_loss"]))
+                    inference_task = asyncio.create_task(async_inference(model, last_n_frames, config["os_loss"]))
                     processing = True
                 if processing and inference_task.done():  # Processing finished
                     res = await inference_task
