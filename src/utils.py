@@ -2,7 +2,7 @@
 import torch.nn as nn
 import os
 import cv2
-
+from PIL import Image
 
 class FakeCap:
     # This simulates a camera, but is a video
@@ -53,3 +53,22 @@ def split_first_dim_linear(x, first_two_dims):
     if len(x_shape) > 1:
         new_shape += [x_shape[-1]]
     return x.view(new_shape)
+
+def load_ss(ss_path, n_frames):
+    
+    # Load ss
+    ss = {}
+    ss_gifs = {}
+    for action in ss_path.iterdir():
+        ss[action.name] = []
+        ss_gifs[action.name] = []
+        for example in (ss_path / action.name).iterdir():
+            example_imgs = []
+            for i in range(n_frames):
+                example_imgs.append(Image.open(ss_path / action.name / example.name / f"{i}.jpg"))
+            ss[action.name].append(example_imgs)
+            ss_gifs[action.name].append(ss_path / action.name / example.name / f"{action.name}.gif")
+    # sort dict alfabetically
+    ss = dict(sorted(ss.items()))
+    ss_gifs = dict(sorted(ss_gifs.items()))
+    return ss, ss_gifs
