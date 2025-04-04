@@ -72,7 +72,7 @@ class HumanConsole:
         self.last_action_time = time.time()
 
     def set_current_action(self, action):
-        if action == None:
+        if action is None:
             self.current_action = ""
             return
         if action == self.current_action:
